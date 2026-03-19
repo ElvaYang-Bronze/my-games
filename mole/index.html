@@ -19,7 +19,7 @@ h1{margin:10px;}
 #game{
   display:grid;
   grid-template-columns:repeat(3,1fr);
-  gap:10px;
+  gap:12px;
   padding:20px;
   max-width:320px;
   margin:auto;
@@ -29,23 +29,32 @@ h1{margin:10px;}
   width:100%;
   padding-top:100%;
   background:#1e293b;
-  border-radius:10px;
+  border-radius:12px;
   position:relative;
+  overflow:hidden;
 }
 
 .mole{
   position:absolute;
-  top:20%;
-  left:20%;
-  right:20%;
-  bottom:20%;
-  background:#7dd3fc;
-  border-radius:50%;
-  display:none;
+  bottom:-100%;
+  left:0;
+  right:0;
+  text-align:center;
+  font-size:40px;
+  transition:0.2s;
 }
 
-.show{display:block;}
+/* 出现动画 */
+.show{
+  bottom:20%;
+}
 
+/* 被打动画 */
+.hit{
+  transform:scale(1.4);
+}
+
+/* UI */
 button{
   padding:10px 20px;
   margin:10px;
@@ -66,39 +75,47 @@ button{
 }
 
 .hidden{display:none}
+
+.score{
+  font-size:18px;
+  margin-top:5px;
+}
 </style>
 </head>
 
 <body>
 
 <h1>🐹 打地鼠</h1>
-<div>得分：<span id="score">0</span> | 时间：<span id="time">30</span></div>
+<div class="score">
+  得分：<span id="score">0</span> | 时间：<span id="time">30</span>
+</div>
 
 <div id="game"></div>
 
-<!-- 开始界面 -->
 <div id="start" class="overlay">
   <h2>开始游戏</h2>
   <button onclick="startGame()">开始</button>
 </div>
 
-<!-- 结束界面 -->
 <div id="end" class="overlay hidden">
   <h2>游戏结束</h2>
+  <div id="finalScore"></div>
   <button onclick="startGame()">再来一次</button>
 </div>
 
 <script>
 const game=document.getElementById("game");
-let holes=[], score=0, time=30, timer, moleTimer;
+let holes=[], score=0, time=30;
+let timer, moleTimer;
 
-/* 初始化洞 */
+/* 初始化 */
 for(let i=0;i<9;i++){
   const hole=document.createElement("div");
   hole.className="hole";
 
   const mole=document.createElement("div");
   mole.className="mole";
+  mole.textContent="🐹";
 
   hole.appendChild(mole);
   game.appendChild(hole);
@@ -112,6 +129,7 @@ function startGame(){
   score=0;
   time=30;
   update();
+
   document.getElementById("start").classList.add("hidden");
   document.getElementById("end").classList.add("hidden");
 
@@ -121,10 +139,10 @@ function startGame(){
     if(time<=0) endGame();
   },1000);
 
-  moleTimer=setInterval(showMole,800);
+  moleTimer=setInterval(showMole,700);
 }
 
-/* 出现地鼠 */
+/* 出现 */
 function showMole(){
   holes.forEach(m=>m.classList.remove("show"));
   const i=Math.floor(Math.random()*holes.length);
@@ -133,14 +151,21 @@ function showMole(){
 
 /* 点击 */
 function hit(e){
-  if(!e.target.classList.contains("show")) return;
+  const mole=e.target;
+  if(!mole.classList.contains("show")) return;
+
   score++;
-  playSound(500);
-  e.target.classList.remove("show");
+  mole.classList.remove("show");
+  mole.classList.add("hit");
+
+  playSound(600);
+
+  setTimeout(()=>mole.classList.remove("hit"),150);
+
   update();
 }
 
-/* 更新UI */
+/* UI更新 */
 function update(){
   document.getElementById("score").textContent=score;
   document.getElementById("time").textContent=time;
@@ -150,7 +175,10 @@ function update(){
 function endGame(){
   clearInterval(timer);
   clearInterval(moleTimer);
+
   holes.forEach(m=>m.classList.remove("show"));
+
+  document.getElementById("finalScore").textContent="你的得分："+score;
   document.getElementById("end").classList.remove("hidden");
 }
 
