@@ -1,197 +1,373 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>打地鼠</title>
-
 <style>
-body{
-  margin:0;
-  background:#0f1724;
-  color:white;
-  font-family:Arial;
-  text-align:center;
-}
+  :root{
+    --bg:#0f1724;
+    --panel:#162033;
+    --hole:#1f2a40;
+    --accent:#7dd3fc;
+    --text:#ffffff;
+    --muted:#b7c3d8;
+  }
 
-h1{margin:10px;}
+  html,body{
+    margin:0;
+    min-height:100%;
+    background:linear-gradient(180deg,#0b1220 0%,var(--bg) 100%);
+    color:var(--text);
+    font-family:Arial,system-ui,sans-serif;
+    overflow:hidden;
+    -webkit-tap-highlight-color:transparent;
+  }
 
-#game{
-  display:grid;
-  grid-template-columns:repeat(3,1fr);
-  gap:12px;
-  padding:20px;
-  max-width:320px;
-  margin:auto;
-}
+  .app{
+    min-height:100vh;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:flex-start;
+    padding:16px 12px 24px;
+    box-sizing:border-box;
+  }
 
-.hole{
-  width:100%;
-  padding-top:100%;
-  background:#1e293b;
-  border-radius:12px;
-  position:relative;
-  overflow:hidden;
-}
+  h1{
+    margin:8px 0 6px;
+    font-size:28px;
+    letter-spacing:1px;
+  }
 
-.mole{
-  position:absolute;
-  bottom:-100%;
-  left:0;
-  right:0;
-  text-align:center;
-  font-size:40px;
-  transition:0.2s;
-}
+  .hud{
+    display:flex;
+    gap:16px;
+    align-items:center;
+    justify-content:center;
+    font-size:18px;
+    margin-bottom:14px;
+    color:var(--muted);
+    flex-wrap:wrap;
+  }
 
-/* 出现动画 */
-.show{
-  bottom:20%;
-}
+  .hud strong{
+    color:var(--text);
+    font-size:20px;
+  }
 
-/* 被打动画 */
-.hit{
-  transform:scale(1.4);
-}
+  .board{
+    width:min(92vw,420px);
+    display:grid;
+    grid-template-columns:repeat(3,1fr);
+    gap:12px;
+    margin-top:8px;
+  }
 
-/* UI */
-button{
-  padding:10px 20px;
-  margin:10px;
-  font-size:16px;
-  border:none;
-  border-radius:6px;
-  background:#7dd3fc;
-}
+  .hole{
+    position:relative;
+    aspect-ratio:1 / 1;
+    background:radial-gradient(circle at 50% 38%, #2b3a5c 0%, var(--hole) 55%, #121b2c 100%);
+    border-radius:18px;
+    box-shadow:
+      inset 0 8px 18px rgba(255,255,255,0.04),
+      inset 0 -10px 20px rgba(0,0,0,0.35),
+      0 8px 20px rgba(0,0,0,0.25);
+    overflow:hidden;
+    user-select:none;
+    touch-action:manipulation;
+  }
 
-.overlay{
-  position:fixed;
-  inset:0;
-  background:rgba(0,0,0,0.7);
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  flex-direction:column;
-}
+  .mole{
+    position:absolute;
+    left:50%;
+    bottom:-90px;
+    transform:translateX(-50%);
+    font-size:58px;
+    line-height:1;
+    transition:bottom 0.16s ease, transform 0.12s ease;
+    pointer-events:auto;
+    filter:drop-shadow(0 6px 8px rgba(0,0,0,0.35));
+  }
 
-.hidden{display:none}
+  .mole.show{
+    bottom:10px;
+  }
 
-.score{
-  font-size:18px;
-  margin-top:5px;
-}
+  .mole.hit{
+    transform:translateX(-50%) scale(1.18);
+  }
+
+  .footer{
+    margin-top:14px;
+    color:var(--muted);
+    font-size:13px;
+    text-align:center;
+    max-width:420px;
+    line-height:1.5;
+  }
+
+  .overlay{
+    position:fixed;
+    inset:0;
+    background:rgba(0,0,0,0.72);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    z-index:1000;
+    padding:20px;
+    box-sizing:border-box;
+  }
+
+  .panel{
+    width:min(90vw,360px);
+    background:rgba(20,28,45,0.96);
+    border:1px solid rgba(125,211,252,0.18);
+    border-radius:20px;
+    padding:24px 20px;
+    text-align:center;
+    box-shadow:0 16px 40px rgba(0,0,0,0.35);
+  }
+
+  .panel h2{
+    margin:0 0 10px;
+    font-size:28px;
+  }
+
+  .panel p{
+    margin:8px 0 0;
+    color:var(--muted);
+    line-height:1.6;
+  }
+
+  .btn{
+    appearance:none;
+    border:none;
+    border-radius:14px;
+    background:linear-gradient(180deg,#8be4ff 0%, #5bc8eb 100%);
+    color:#07111d;
+    font-weight:700;
+    padding:12px 18px;
+    margin-top:18px;
+    min-width:132px;
+    font-size:16px;
+    box-shadow:0 10px 22px rgba(91,200,235,0.22);
+  }
+
+  .hidden{ display:none !important; }
+
+  .blink{
+    animation:blink 0.25s ease;
+  }
+
+  @keyframes blink{
+    0%{ transform:scale(1); }
+    50%{ transform:scale(1.08); }
+    100%{ transform:scale(1); }
+  }
+
+  @media (max-width: 420px){
+    h1{ font-size:24px; }
+    .hud{ font-size:16px; gap:12px; }
+    .hud strong{ font-size:18px; }
+    .mole{ font-size:52px; }
+  }
 </style>
 </head>
-
 <body>
+  <div class="app">
+    <h1>🐹 打地鼠</h1>
 
-<h1>🐹 打地鼠</h1>
-<div class="score">
-  得分：<span id="score">0</span> | 时间：<span id="time">30</span>
-</div>
+    <div class="hud">
+      <div>得分：<strong id="score">0</strong></div>
+      <div>时间：<strong id="time">30</strong>s</div>
+    </div>
 
-<div id="game"></div>
+    <div id="board" class="board" aria-label="打地鼠游戏区域"></div>
 
-<div id="start" class="overlay">
-  <h2>开始游戏</h2>
-  <button onclick="startGame()">开始</button>
-</div>
+    <div class="footer">
+      点击出现的地鼠得分。手机上直接点屏幕就可以玩。
+    </div>
+  </div>
 
-<div id="end" class="overlay hidden">
-  <h2>游戏结束</h2>
-  <div id="finalScore"></div>
-  <button onclick="startGame()">再来一次</button>
-</div>
+  <div id="startOverlay" class="overlay">
+    <div class="panel">
+      <h2>开始游戏</h2>
+      <p>在 30 秒内尽量多打中地鼠。<br>点击“开始”进入游戏。</p>
+      <button class="btn" id="startBtn">开始</button>
+    </div>
+  </div>
+
+  <div id="endOverlay" class="overlay hidden">
+    <div class="panel">
+      <h2>游戏结束</h2>
+      <p>你的得分：<strong id="finalScore">0</strong></p>
+      <button class="btn" id="restartBtn">再来一次</button>
+    </div>
+  </div>
 
 <script>
-const game=document.getElementById("game");
-let holes=[], score=0, time=30;
-let timer, moleTimer;
+(() => {
+  const board = document.getElementById('board');
+  const scoreEl = document.getElementById('score');
+  const timeEl = document.getElementById('time');
+  const startOverlay = document.getElementById('startOverlay');
+  const endOverlay = document.getElementById('endOverlay');
+  const finalScoreEl = document.getElementById('finalScore');
+  const startBtn = document.getElementById('startBtn');
+  const restartBtn = document.getElementById('restartBtn');
 
-/* 初始化 */
-for(let i=0;i<9;i++){
-  const hole=document.createElement("div");
-  hole.className="hole";
+  const GAME_TIME = 30;
+  const baseSpawnMs = 800;
 
-  const mole=document.createElement("div");
-  mole.className="mole";
-  mole.textContent="🐹";
+  let holes = [];
+  let score = 0;
+  let timeLeft = GAME_TIME;
+  let timerId = null;
+  let spawnId = null;
+  let currentIndex = -1;
+  let running = false;
 
-  hole.appendChild(mole);
-  game.appendChild(hole);
-  holes.push(mole);
+  function buildBoard() {
+    board.innerHTML = '';
+    holes = [];
 
-  mole.addEventListener("click",hit);
-}
+    for (let i = 0; i < 9; i++) {
+      const hole = document.createElement('div');
+      hole.className = 'hole';
 
-/* 开始 */
-function startGame(){
-  score=0;
-  time=30;
-  update();
+      const mole = document.createElement('div');
+      mole.className = 'mole';
+      mole.textContent = '🐹';
+      mole.setAttribute('role', 'button');
+      mole.setAttribute('aria-label', '地鼠');
 
-  document.getElementById("start").classList.add("hidden");
-  document.getElementById("end").classList.add("hidden");
+      // 使用 pointerup，比 click 更适合手机
+      mole.addEventListener('pointerup', onMoleHit);
+      hole.appendChild(mole);
+      board.appendChild(hole);
+      holes.push(mole);
+    }
+  }
 
-  timer=setInterval(()=>{
-    time--;
-    update();
-    if(time<=0) endGame();
-  },1000);
+  function updateHUD() {
+    scoreEl.textContent = score;
+    timeEl.textContent = timeLeft;
+  }
 
-  moleTimer=setInterval(showMole,700);
-}
+  function clearMoles() {
+    holes.forEach(m => {
+      m.classList.remove('show');
+      m.classList.remove('hit');
+    });
+    currentIndex = -1;
+  }
 
-/* 出现 */
-function showMole(){
-  holes.forEach(m=>m.classList.remove("show"));
-  const i=Math.floor(Math.random()*holes.length);
-  holes[i].classList.add("show");
-}
+  function showRandomMole() {
+    if (!running) return;
 
-/* 点击 */
-function hit(e){
-  const mole=e.target;
-  if(!mole.classList.contains("show")) return;
+    clearMoles();
 
-  score++;
-  mole.classList.remove("show");
-  mole.classList.add("hit");
+    const next = Math.floor(Math.random() * holes.length);
+    currentIndex = next;
+    holes[next].classList.add('show');
+  }
 
-  playSound(600);
+  function onMoleHit(e) {
+    if (!running) return;
 
-  setTimeout(()=>mole.classList.remove("hit"),150);
+    const mole = e.currentTarget;
+    if (!mole.classList.contains('show')) return;
 
-  update();
-}
+    score += 1;
+    updateHUD();
 
-/* UI更新 */
-function update(){
-  document.getElementById("score").textContent=score;
-  document.getElementById("time").textContent=time;
-}
+    mole.classList.add('hit');
+    mole.classList.remove('show');
 
-/* 结束 */
-function endGame(){
-  clearInterval(timer);
-  clearInterval(moleTimer);
+    playSound(680, 90);
 
-  holes.forEach(m=>m.classList.remove("show"));
+    // 小反馈动画
+    scoreEl.classList.remove('blink');
+    void scoreEl.offsetWidth;
+    scoreEl.classList.add('blink');
 
-  document.getElementById("finalScore").textContent="你的得分："+score;
-  document.getElementById("end").classList.remove("hidden");
-}
+    setTimeout(() => {
+      mole.classList.remove('hit');
+    }, 120);
+  }
 
-/* 音效 */
-function playSound(freq){
-  const ac=new AudioContext();
-  const o=ac.createOscillator();
-  o.frequency.value=freq;
-  o.connect(ac.destination);
-  o.start();
-  setTimeout(()=>o.stop(),100);
-}
+  function startGame() {
+    score = 0;
+    timeLeft = GAME_TIME;
+    running = true;
+
+    updateHUD();
+    clearMoles();
+
+    startOverlay.classList.add('hidden');
+    endOverlay.classList.add('hidden');
+
+    if (timerId) clearInterval(timerId);
+    if (spawnId) clearInterval(spawnId);
+
+    showRandomMole();
+    timerId = setInterval(() => {
+      timeLeft -= 1;
+      updateHUD();
+      if (timeLeft <= 0) {
+        endGame();
+      }
+    }, 1000);
+
+    // 随机出现速度：开始慢一点，后面稍快一点
+    spawnId = setInterval(() => {
+      if (!running) return;
+      showRandomMole();
+    }, baseSpawnMs);
+  }
+
+  function endGame() {
+    running = false;
+    clearInterval(timerId);
+    clearInterval(spawnId);
+    clearMoles();
+
+    finalScoreEl.textContent = score;
+    endOverlay.classList.remove('hidden');
+  }
+
+  function playSound(freq, duration) {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      const ac = new AudioCtx();
+      const osc = ac.createOscillator();
+      const gain = ac.createGain();
+
+      osc.type = 'square';
+      osc.frequency.value = freq;
+
+      gain.gain.value = 0.05;
+
+      osc.connect(gain);
+      gain.connect(ac.destination);
+
+      osc.start();
+      setTimeout(() => {
+        osc.stop();
+        ac.close();
+      }, duration);
+    } catch (err) {
+      // 静默失败，不影响游戏
+    }
+  }
+
+  startBtn.addEventListener('click', startGame);
+  restartBtn.addEventListener('click', startGame);
+
+  buildBoard();
+  updateHUD();
+})();
 </script>
-
 </body>
 </html>
