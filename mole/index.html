@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>打地鼠</title>
+
+<style>
+body{
+  margin:0;
+  background:#0f1724;
+  color:white;
+  font-family:Arial;
+  text-align:center;
+}
+
+h1{margin:10px;}
+
+#game{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:10px;
+  padding:20px;
+  max-width:320px;
+  margin:auto;
+}
+
+.hole{
+  width:100%;
+  padding-top:100%;
+  background:#1e293b;
+  border-radius:10px;
+  position:relative;
+}
+
+.mole{
+  position:absolute;
+  top:20%;
+  left:20%;
+  right:20%;
+  bottom:20%;
+  background:#7dd3fc;
+  border-radius:50%;
+  display:none;
+}
+
+.show{display:block;}
+
+button{
+  padding:10px 20px;
+  margin:10px;
+  font-size:16px;
+  border:none;
+  border-radius:6px;
+  background:#7dd3fc;
+}
+
+.overlay{
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,0.7);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  flex-direction:column;
+}
+
+.hidden{display:none}
+</style>
+</head>
+
+<body>
+
+<h1>🐹 打地鼠</h1>
+<div>得分：<span id="score">0</span> | 时间：<span id="time">30</span></div>
+
+<div id="game"></div>
+
+<!-- 开始界面 -->
+<div id="start" class="overlay">
+  <h2>开始游戏</h2>
+  <button onclick="startGame()">开始</button>
+</div>
+
+<!-- 结束界面 -->
+<div id="end" class="overlay hidden">
+  <h2>游戏结束</h2>
+  <button onclick="startGame()">再来一次</button>
+</div>
+
+<script>
+const game=document.getElementById("game");
+let holes=[], score=0, time=30, timer, moleTimer;
+
+/* 初始化洞 */
+for(let i=0;i<9;i++){
+  const hole=document.createElement("div");
+  hole.className="hole";
+
+  const mole=document.createElement("div");
+  mole.className="mole";
+
+  hole.appendChild(mole);
+  game.appendChild(hole);
+  holes.push(mole);
+
+  mole.addEventListener("click",hit);
+}
+
+/* 开始 */
+function startGame(){
+  score=0;
+  time=30;
+  update();
+  document.getElementById("start").classList.add("hidden");
+  document.getElementById("end").classList.add("hidden");
+
+  timer=setInterval(()=>{
+    time--;
+    update();
+    if(time<=0) endGame();
+  },1000);
+
+  moleTimer=setInterval(showMole,800);
+}
+
+/* 出现地鼠 */
+function showMole(){
+  holes.forEach(m=>m.classList.remove("show"));
+  const i=Math.floor(Math.random()*holes.length);
+  holes[i].classList.add("show");
+}
+
+/* 点击 */
+function hit(e){
+  if(!e.target.classList.contains("show")) return;
+  score++;
+  playSound(500);
+  e.target.classList.remove("show");
+  update();
+}
+
+/* 更新UI */
+function update(){
+  document.getElementById("score").textContent=score;
+  document.getElementById("time").textContent=time;
+}
+
+/* 结束 */
+function endGame(){
+  clearInterval(timer);
+  clearInterval(moleTimer);
+  holes.forEach(m=>m.classList.remove("show"));
+  document.getElementById("end").classList.remove("hidden");
+}
+
+/* 音效 */
+function playSound(freq){
+  const ac=new AudioContext();
+  const o=ac.createOscillator();
+  o.frequency.value=freq;
+  o.connect(ac.destination);
+  o.start();
+  setTimeout(()=>o.stop(),100);
+}
+</script>
+
+</body>
+</html>
