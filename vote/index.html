@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>投票页面</title>
+<style>
+  :root{
+    --bg:#0f172a;
+    --card:#1e293b;
+    --card-hover:#334155;
+    --text:#e2e8f0;
+    --muted:#94a3b8;
+    --accent:#22c55e;
+    --danger:#ef4444;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    font-family:Arial,sans-serif;
+    background:linear-gradient(165deg,#0b1220,#0f172a 45%,#111827);
+    color:var(--text);
+    min-height:100vh;
+  }
+  .wrap{
+    max-width:760px;
+    margin:0 auto;
+    padding:20px;
+  }
+  h1{
+    margin:8px 0 18px;
+    text-align:center;
+  }
+  .panel{
+    background:rgba(30,41,59,.9);
+    border:1px solid rgba(148,163,184,.25);
+    border-radius:14px;
+    padding:16px;
+    margin-bottom:16px;
+  }
+  .muted{color:var(--muted);font-size:14px;margin-top:6px;}
+  label{display:block;margin-bottom:8px;font-weight:600;}
+  input, textarea, button{
+    width:100%;
+    border-radius:10px;
+    border:1px solid rgba(148,163,184,.3);
+    background:#0b1220;
+    color:var(--text);
+    padding:10px 12px;
+    font-size:15px;
+  }
+  textarea{resize:vertical;min-height:86px;}
+  .row{display:grid;gap:10px;grid-template-columns:1fr;}
+  button{
+    cursor:pointer;
+    background:#0ea5e9;
+    border:none;
+    font-weight:700;
+    margin-top:10px;
+  }
+  button:hover{filter:brightness(1.07);}
+  .secondary{background:#475569;}
+  .danger{background:var(--danger);}
+  .options{display:grid;gap:10px;}
+  .option-btn{
+    text-align:left;
+    background:var(--card);
+    border:1px solid rgba(148,163,184,.35);
+    padding:12px;
+    border-radius:10px;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:10px;
+  }
+  .option-btn:hover{background:var(--card-hover);}
+  .vote-count{
+    color:#86efac;
+    font-weight:700;
+    white-space:nowrap;
+  }
+  .status{margin-top:10px;font-size:14px;min-height:20px;}
+  .ok{color:#86efac;}
+  .error{color:#fda4af;}
+  .actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>🗳️ 投票网页</h1>
+
+    <section class="panel">
+      <label for="name">投票人姓名（必填）</label>
+      <input id="name" type="text" placeholder="例如：张三" autocomplete="name" />
+      <p class="muted">同一个姓名只能投票一次（不区分大小写，会自动去掉前后空格）。</p>
+    </section>
+
+    <section class="panel">
+      <label for="optionInput">填写投票选项（每行一个）</label>
+      <textarea id="optionInput" placeholder="例如：\n苹果\n香蕉\n西瓜"></textarea>
+      <button id="setOptionsBtn">创建/更新投票选项</button>
+      <p class="muted">更新选项会重置票数与已投票名单。</p>
+    </section>
+
+    <section class="panel">
+      <h2 style="margin:0 0 12px;">可投票选项</h2>
+      <div id="options" class="options"></div>
+      <div id="status" class="status muted">请先填写姓名，再点击选项投票。</div>
+      <div class="actions">
+        <button id="resetVotesBtn" class="secondary" type="button">仅清空票数/名单</button>
+        <button id="clearAllBtn" class="danger" type="button">清空全部（含选项）</button>
+      </div>
+    </section>
+  </div>
+
+<script>
+(() => {
+  const STORAGE_KEY = 'simple-vote-data-v1';
+
+  const defaultState = {
+    options: ['选项 A', '选项 B', '选项 C'],
+    votes: [0, 0, 0],
+    votedUsers: {}
+  };
+
+  const el = {
+    name: document.getElementById('name'),
+    optionInput: document.getElementById('optionInput'),
+    setOptionsBtn: document.getElementById('setOptionsBtn'),
+    options: document.getElementById('options'),
+    status: document.getElementById('status'),
+    resetVotesBtn: document.getElementById('resetVotesBtn'),
+    clearAllBtn: document.getElementById('clearAllBtn')
+  };
+
+  let state = loadState();
+  render();
+
+  el.setOptionsBtn.addEventListener('click', () => {
+    const lines = el.optionInput.value
+      .split('\n')
+      .map(item => item.trim())
+      .filter(Boolean);
+
+    const unique = Array.from(new Set(lines));
+
+    if (unique.length < 2) {
+      setStatus('请至少填写两个不同的选项。', 'error');
+      return;
+    }
+
+    state.options = unique;
+    state.votes = new Array(unique.length).fill(0);
+    state.votedUsers = {};
+    saveState();
+    render();
+    setStatus('投票选项已更新，票数与名单已重置。', 'ok');
+  });
+
+  el.resetVotesBtn.addEventListener('click', () => {
+    state.votes = new Array(state.options.length).fill(0);
+    state.votedUsers = {};
+    saveState();
+    render();
+    setStatus('票数与投票名单已清空，选项保留。', 'ok');
+  });
+
+  el.clearAllBtn.addEventListener('click', () => {
+    state = JSON.parse(JSON.stringify(defaultState));
+    el.optionInput.value = '';
+    saveState();
+    render();
+    setStatus('已恢复默认投票。', 'ok');
+  });
+
+  function normalizeName(name) {
+    return name.trim().toLowerCase();
+  }
+
+  function vote(index) {
+    const rawName = el.name.value;
+    const nameKey = normalizeName(rawName);
+
+    if (!nameKey) {
+      setStatus('请先填写姓名后再投票。', 'error');
+      return;
+    }
+
+    if (state.votedUsers[nameKey]) {
+      setStatus(`"${rawName.trim()}" 已投过票，每人只能投一票。`, 'error');
+      return;
+    }
+
+    state.votes[index] += 1;
+    state.votedUsers[nameKey] = {
+      displayName: rawName.trim(),
+      optionIndex: index,
+      votedAt: Date.now()
+    };
+
+    saveState();
+    render();
+    setStatus(`投票成功：${rawName.trim()} -> ${state.options[index]}`, 'ok');
+  }
+
+  function render() {
+    el.options.innerHTML = '';
+
+    state.options.forEach((option, index) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'option-btn';
+      btn.innerHTML = `<span>${escapeHtml(option)}</span><span class="vote-count">${state.votes[index]} 票</span>`;
+      btn.addEventListener('click', () => vote(index));
+      el.options.appendChild(btn);
+    });
+  }
+
+  function setStatus(msg, type = '') {
+    el.status.textContent = msg;
+    el.status.className = `status ${type}`;
+  }
+
+  function loadState() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) {
+        return JSON.parse(JSON.stringify(defaultState));
+      }
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed.options) || !Array.isArray(parsed.votes)) {
+        return JSON.parse(JSON.stringify(defaultState));
+      }
+      if (parsed.options.length !== parsed.votes.length || parsed.options.length === 0) {
+        return JSON.parse(JSON.stringify(defaultState));
+      }
+      return {
+        options: parsed.options,
+        votes: parsed.votes,
+        votedUsers: parsed.votedUsers || {}
+      };
+    } catch (e) {
+      return JSON.parse(JSON.stringify(defaultState));
+    }
+  }
+
+  function saveState() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  }
+
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+})();
+</script>
+</body>
+</html>
