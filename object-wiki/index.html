@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>拍图识别 + Wiki 知识助手</title>
+  <style>
+    :root {
+      --bg: #0b1220;
+      --card: #121a2a;
+      --accent: #38bdf8;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --ok: #22c55e;
+      --warn: #f59e0b;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: linear-gradient(150deg, #020617, #0b1220 40%, #111827);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 24px;
+    }
+
+    .container { max-width: 1050px; margin: 0 auto; }
+    .header { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+    h1 { margin: 0 0 8px; font-size: clamp(1.3rem, 2vw, 2rem); }
+    .subtitle { margin: 0; color: var(--muted); }
+    .lang-switch {
+      border: 1px solid #334155;
+      background: #0f172a;
+      color: var(--text);
+      border-radius: 999px;
+      padding: 8px 12px;
+      cursor: pointer;
+    }
+
+    .layout { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 20px; }
+    @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+
+    .card {
+      background: rgba(15, 23, 42, .9);
+      border: 1px solid #263246;
+      border-radius: 16px;
+      padding: 16px;
+      box-shadow: 0 10px 30px rgba(2, 6, 23, .45);
+    }
+
+    .controls { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+    button, input[type="file"]::file-selector-button {
+      border: 0;
+      border-radius: 10px;
+      padding: 10px 14px;
+      cursor: pointer;
+      background: #1e293b;
+      color: var(--text);
+    }
+    button.primary { background: var(--accent); color: #082f49; font-weight: 700; }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+
+    video, canvas, img.preview {
+      width: 100%;
+      border-radius: 12px;
+      background: #020617;
+      border: 1px solid #334155;
+      display: block;
+    }
+    canvas { margin-top: 8px; }
+
+    .status { font-size: .95rem; color: var(--muted); margin-top: 8px; }
+    .status.ok { color: var(--ok); }
+    .status.warn { color: var(--warn); }
+
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+    .chip {
+      background: #0b2540;
+      color: #bae6fd;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: .88rem;
+      border: 1px solid #1d4ed8;
+      cursor: pointer;
+    }
+
+    .ask-box { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+    .ask-box input {
+      width: 100%;
+      background: #020617;
+      border: 1px solid #334155;
+      color: var(--text);
+      border-radius: 10px;
+      padding: 10px;
+    }
+
+    .wiki {
+      margin-top: 10px;
+      max-height: 460px;
+      overflow: auto;
+      border-top: 1px dashed #334155;
+      padding-top: 10px;
+    }
+    .wiki h3 { margin: 10px 0 4px; }
+    .wiki p { color: #cbd5e1; line-height: 1.55; }
+    .wiki a { color: #7dd3fc; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div>
+        <h1 id="title">📷 拍图识别物体 + Wiki 百科互动助手</h1>
+        <p class="subtitle" id="subtitle">支持拍照/上传图片识别物体，并按你的问题检索中英文百科知识。</p>
+      </div>
+      <button class="lang-switch" id="langBtn">English</button>
+    </div>
+
+    <div class="layout">
+      <section class="card">
+        <div class="controls">
+          <button id="startCam" class="primary">打开摄像头</button>
+          <button id="snapBtn" disabled>拍照识别</button>
+          <input id="fileInput" type="file" accept="image/*" />
+        </div>
+        <video id="video" autoplay playsinline></video>
+        <canvas id="canvas"></canvas>
+        <p class="status" id="detectStatus">模型加载中...</p>
+        <div class="chips" id="objectChips"></div>
+      </section>
+
+      <section class="card">
+        <h2 id="wikiTitle">百科检索与互动问答</h2>
+        <p class="subtitle" id="wikiHint">点击左侧识别出的物体，或手动输入名称，然后提问（如：用途、历史、特点）。</p>
+
+        <div class="ask-box">
+          <input id="subjectInput" placeholder="输入物体名，例如: cat / 猫" />
+          <button id="fetchBtn" class="primary">获取百科</button>
+        </div>
+        <div class="ask-box" style="margin-top:8px;">
+          <input id="questionInput" placeholder="继续提问，例如：它最早起源于哪里？" />
+          <button id="askBtn">提问</button>
+        </div>
+
+        <div class="wiki" id="wikiBox"></div>
+      </section>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+  <script>
+    const I18N = {
+      zh: {
+        title: "📷 拍图识别物体 + Wiki 百科互动助手",
+        subtitle: "支持拍照/上传图片识别物体，并按你的问题检索中英文百科知识。",
+        startCam: "打开摄像头",
+        snap: "拍照识别",
+        loading: "模型加载中...",
+        loaded: "模型已就绪，可开始识别。",
+        noCam: "无法访问摄像头，请改用上传图片。",
+        detected: "识别到对象：",
+        noObj: "未识别到明显对象，请换一张更清晰的图片。",
+        wikiTitle: "百科检索与互动问答",
+        wikiHint: "点击左侧识别出的物体，或手动输入名称，然后提问（如：用途、历史、特点）。",
+        subjectPlaceholder: "输入物体名，例如: cat / 猫",
+        questionPlaceholder: "继续提问，例如：它最早起源于哪里？",
+        fetch: "获取百科",
+        ask: "提问",
+        searching: "正在检索百科...",
+        enterSubject: "请先输入物体名。",
+        noWiki: "未找到相关百科内容，请尝试英文名或更具体词汇。",
+        readMore: "查看原文"
+      },
+      en: {
+        title: "📷 Object Detection + Interactive Wiki Assistant",
+        subtitle: "Take/upload a photo, detect objects, and query bilingual Wiki knowledge interactively.",
+        startCam: "Open Camera",
+        snap: "Capture & Detect",
+        loading: "Loading model...",
+        loaded: "Model ready. Start detection.",
+        noCam: "Camera unavailable. Please upload an image instead.",
+        detected: "Detected objects:",
+        noObj: "No clear object detected. Try a sharper image.",
+        wikiTitle: "Wiki Retrieval & Interactive Q&A",
+        wikiHint: "Tap a detected object or type one, then ask follow-up questions.",
+        subjectPlaceholder: "Type object name, e.g. cat / 苹果",
+        questionPlaceholder: "Ask follow-up, e.g. Where did it originate?",
+        fetch: "Get Wiki",
+        ask: "Ask",
+        searching: "Searching Wiki...",
+        enterSubject: "Please enter an object name first.",
+        noWiki: "No wiki entry found. Try another term.",
+        readMore: "Read more"
+      }
+    };
+
+    let currentLang = "zh";
+    let model = null;
+    let stream = null;
+    let currentSummary = "";
+
+    const el = id => document.getElementById(id);
+    const video = el("video"), canvas = el("canvas"), ctx = canvas.getContext("2d");
+    const detectStatus = el("detectStatus"), objectChips = el("objectChips");
+
+    function t(key) { return I18N[currentLang][key] || key; }
+
+    function applyLang() {
+      el("title").textContent = t("title");
+      el("subtitle").textContent = t("subtitle");
+      el("startCam").textContent = t("startCam");
+      el("snapBtn").textContent = t("snap");
+      el("wikiTitle").textContent = t("wikiTitle");
+      el("wikiHint").textContent = t("wikiHint");
+      el("subjectInput").placeholder = t("subjectPlaceholder");
+      el("questionInput").placeholder = t("questionPlaceholder");
+      el("fetchBtn").textContent = t("fetch");
+      el("askBtn").textContent = t("ask");
+      el("langBtn").textContent = currentLang === "zh" ? "English" : "中文";
+    }
+
+    async function loadModel() {
+      detectStatus.textContent = t("loading");
+      model = await cocoSsd.load();
+      detectStatus.textContent = t("loaded");
+      detectStatus.className = "status ok";
+    }
+
+    async function openCamera() {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+        video.srcObject = stream;
+        el("snapBtn").disabled = false;
+      } catch {
+        detectStatus.textContent = t("noCam");
+        detectStatus.className = "status warn";
+      }
+    }
+
+    async function detectFromElement(imageEl) {
+      if (!model) return;
+      const predictions = await model.detect(imageEl);
+
+      const w = imageEl.videoWidth || imageEl.naturalWidth || imageEl.width;
+      const h = imageEl.videoHeight || imageEl.naturalHeight || imageEl.height;
+      canvas.width = w;
+      canvas.height = h;
+      ctx.drawImage(imageEl, 0, 0, w, h);
+
+      ctx.lineWidth = 2;
+      ctx.font = "16px sans-serif";
+      objectChips.innerHTML = "";
+
+      if (!predictions.length) {
+        detectStatus.textContent = t("noObj");
+        detectStatus.className = "status warn";
+        return;
+      }
+
+      const labels = new Set();
+      predictions.forEach(p => {
+        const [x, y, bw, bh] = p.bbox;
+        ctx.strokeStyle = "#22d3ee";
+        ctx.strokeRect(x, y, bw, bh);
+        ctx.fillStyle = "#22d3ee";
+        const txt = `${p.class} ${(p.score * 100).toFixed(1)}%`;
+        ctx.fillText(txt, x, Math.max(16, y - 4));
+        labels.add(p.class);
+      });
+
+      detectStatus.textContent = `${t("detected")} ${[...labels].join(", ")}`;
+      detectStatus.className = "status ok";
+
+      [...labels].forEach(label => {
+        const chip = document.createElement("button");
+        chip.className = "chip";
+        chip.textContent = label;
+        chip.onclick = () => {
+          el("subjectInput").value = label;
+          fetchWiki(label);
+        };
+        objectChips.appendChild(chip);
+      });
+    }
+
+    async function fetchWiki(subject, question = "") {
+      if (!subject) {
+        alert(t("enterSubject"));
+        return;
+      }
+
+      const wikiLang = currentLang === "zh" ? "zh" : "en";
+      el("wikiBox").innerHTML = `<p>${t("searching")}</p>`;
+
+      try {
+        const searchUrl = `https://${wikiLang}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(subject)}&utf8=&format=json&origin=*`;
+        const searchRes = await fetch(searchUrl).then(r => r.json());
+        const item = searchRes?.query?.search?.[0];
+        if (!item) {
+          el("wikiBox").innerHTML = `<p>${t("noWiki")}</p>`;
+          return;
+        }
+
+        const title = item.title;
+        const summaryUrl = `https://${wikiLang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`;
+        const sumRes = await fetch(summaryUrl).then(r => r.json());
+
+        currentSummary = sumRes.extract || "";
+
+        const response = answerBySummary(subject, question, currentSummary);
+        const link = sumRes?.content_urls?.desktop?.page || `https://${wikiLang}.wikipedia.org/wiki/${encodeURIComponent(title)}`;
+
+        el("wikiBox").innerHTML = `
+          <h3>${title}</h3>
+          <p>${currentSummary || t("noWiki")}</p>
+          ${question ? `<p><strong>Q:</strong> ${question}<br/><strong>A:</strong> ${response}</p>` : ""}
+          <p><a href="${link}" target="_blank" rel="noopener noreferrer">${t("readMore")}</a></p>
+        `;
+      } catch (err) {
+        el("wikiBox").innerHTML = `<p>${String(err)}</p>`;
+      }
+    }
+
+    function answerBySummary(subject, question, summary) {
+      if (!question) return "";
+      if (!summary) return currentLang === "zh" ? "暂无摘要，建议查看原文链接。" : "No summary available. Please check the source page.";
+
+      const short = summary.split(/(?<=[。.!?])/).slice(0, 3).join(" ");
+      if (currentLang === "zh") {
+        return `基于 ${subject} 的百科摘要：${short}`;
+      }
+      return `Based on the wiki summary of ${subject}: ${short}`;
+    }
+
+    el("langBtn").onclick = () => {
+      currentLang = currentLang === "zh" ? "en" : "zh";
+      applyLang();
+    };
+
+    el("startCam").onclick = openCamera;
+    el("snapBtn").onclick = () => detectFromElement(video);
+
+    el("fileInput").addEventListener("change", async e => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const img = new Image();
+      img.className = "preview";
+      img.onload = () => detectFromElement(img);
+      img.src = URL.createObjectURL(file);
+    });
+
+    el("fetchBtn").onclick = () => fetchWiki(el("subjectInput").value.trim());
+    el("askBtn").onclick = () => fetchWiki(el("subjectInput").value.trim(), el("questionInput").value.trim());
+
+    applyLang();
+    loadModel();
+  </script>
+</body>
+</html>
