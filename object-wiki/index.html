@@ -124,6 +124,11 @@
           <button id="snapBtn" disabled>拍照识别</button>
           <input id="fileInput" type="file" accept="image/*" />
         </div>
+        <div class="controls">
+          <button id="refocusBtn">重新对焦</button>
+          <label id="focusLabel" style="display:none;">焦距 <input id="focusSlider" type="range" min="0" max="100" value="50" /></label>
+          <label id="zoomLabel" style="display:none;">变焦 <input id="zoomSlider" type="range" min="100" max="300" value="100" /></label>
+        </div>
         <video id="video" autoplay playsinline></video>
         <canvas id="canvas"></canvas>
         <p class="status" id="detectStatus">模型加载中...</p>
@@ -160,6 +165,10 @@
         loading: "模型加载中...",
         loaded: "模型已就绪，可开始识别。",
         noCam: "无法访问摄像头，请改用上传图片。",
+        refocus: "重新对焦",
+        blurWarn: "画面偏模糊：请后退 10~20cm、等待自动对焦后再拍。",
+        focus: "焦距",
+        zoom: "变焦",
         detected: "识别到对象：",
         noObj: "未识别到明显对象，请换一张更清晰的图片。",
         wikiTitle: "百科检索与互动问答",
@@ -181,6 +190,10 @@
         loading: "Loading model...",
         loaded: "Model ready. Start detection.",
         noCam: "Camera unavailable. Please upload an image instead.",
+        refocus: "Refocus",
+        blurWarn: "Image is blurry: move back 10-20cm and wait for autofocus.",
+        focus: "Focus",
+        zoom: "Zoom",
         detected: "Detected objects:",
         noObj: "No clear object detected. Try a sharper image.",
         wikiTitle: "Wiki Retrieval & Interactive Q&A",
@@ -199,6 +212,7 @@
     let currentLang = "zh";
     let model = null;
     let stream = null;
+    let track = null;
     let currentSummary = "";
 
     const el = id => document.getElementById(id);
@@ -214,6 +228,9 @@
       el("snapBtn").textContent = t("snap");
       el("wikiTitle").textContent = t("wikiTitle");
       el("wikiHint").textContent = t("wikiHint");
+      el("refocusBtn").textContent = t("refocus");
+      el("focusLabel").childNodes[0].textContent = t("focus") + " ";
+      el("zoomLabel").childNodes[0].textContent = t("zoom") + " ";
       el("subjectInput").placeholder = t("subjectPlaceholder");
       el("questionInput").placeholder = t("questionPlaceholder");
       el("fetchBtn").textContent = t("fetch");
@@ -232,22 +249,106 @@
       try {
         stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
         video.srcObject = stream;
+        track = stream.getVideoTracks()[0];
         el("snapBtn").disabled = false;
+        await setupCameraControls();
       } catch {
         detectStatus.textContent = t("noCam");
         detectStatus.className = "status warn";
       }
     }
 
+    async function setupCameraControls() {
+      if (!track || !track.getCapabilities) return;
+      const caps = track.getCapabilities();
+      const focusLabel = el("focusLabel");
+      const zoomLabel = el("zoomLabel");
+
+      if (caps.focusDistance) {
+        focusLabel.style.display = "inline-flex";
+        const fs = el("focusSlider");
+        fs.min = caps.focusDistance.min;
+        fs.max = caps.focusDistance.max;
+        fs.step = caps.focusDistance.step || 0.01;
+        fs.value = (caps.focusDistance.min + caps.focusDistance.max) / 2;
+        fs.oninput = async () => {
+          try {
+            await track.applyConstraints({ advanced: [{ focusMode: "manual", focusDistance: Number(fs.value) }] });
+          } catch {}
+        };
+      }
+
+      if (caps.zoom) {
+        zoomLabel.style.display = "inline-flex";
+        const zs = el("zoomSlider");
+        zs.min = caps.zoom.min * 100;
+        zs.max = caps.zoom.max * 100;
+        zs.step = (caps.zoom.step || 0.1) * 100;
+        zs.value = (caps.zoom.min || 1) * 100;
+        zs.oninput = async () => {
+          try {
+            await track.applyConstraints({ advanced: [{ zoom: Number(zs.value) / 100 }] });
+          } catch {}
+        };
+      }
+
+      try {
+        await track.applyConstraints({ advanced: [{ focusMode: "continuous" }] });
+      } catch {}
+    }
+
+    async function refocusNow() {
+      if (!track) return;
+      try {
+        await track.applyConstraints({ advanced: [{ focusMode: "single-shot" }] });
+      } catch {}
+      try {
+        await track.applyConstraints({ advanced: [{ focusMode: "continuous" }] });
+      } catch {}
+    }
+
+    function blurScore(imageData, w, h) {
+      let sum = 0, count = 0;
+      for (let y = 1; y < h - 1; y += 2) {
+        for (let x = 1; x < w - 1; x += 2) {
+          const i = (y * w + x) * 4;
+          const c = imageData[i];
+          const l = imageData[i - 4], r = imageData[i + 4], u = imageData[i - w * 4], d = imageData[i + w * 4];
+          sum += Math.abs(4 * c - l - r - u - d);
+          count++;
+        }
+      }
+      return sum / Math.max(count, 1);
+    }
+
+    function drawEnhanced(source, w, h) {
+      ctx.drawImage(source, 0, 0, w, h);
+      const img = ctx.getImageData(0, 0, w, h);
+      const d = img.data;
+      for (let i = 0; i < d.length; i += 4) {
+        d[i] = Math.min(255, (d[i] - 128) * 1.15 + 128);
+        d[i+1] = Math.min(255, (d[i+1] - 128) * 1.15 + 128);
+        d[i+2] = Math.min(255, (d[i+2] - 128) * 1.15 + 128);
+      }
+      ctx.putImageData(img, 0, 0);
+    }
+
     async function detectFromElement(imageEl) {
       if (!model) return;
-      const predictions = await model.detect(imageEl);
+      const predictionsA = await model.detect(imageEl, 12, 0.25);
 
       const w = imageEl.videoWidth || imageEl.naturalWidth || imageEl.width;
       const h = imageEl.videoHeight || imageEl.naturalHeight || imageEl.height;
       canvas.width = w;
       canvas.height = h;
       ctx.drawImage(imageEl, 0, 0, w, h);
+      const blur = blurScore(ctx.getImageData(0,0,w,h).data, w, h);
+      drawEnhanced(imageEl, w, h);
+      const enhancedInput = document.createElement("canvas");
+      enhancedInput.width = w; enhancedInput.height = h;
+      enhancedInput.getContext("2d").drawImage(canvas,0,0);
+      const predictionsB = await model.detect(enhancedInput, 12, 0.2);
+      const predictions = [...predictionsA, ...predictionsB];
 
       ctx.lineWidth = 2;
       ctx.font = "16px sans-serif";
@@ -270,7 +371,8 @@
         labels.add(p.class);
       });
 
-      detectStatus.textContent = `${t("detected")} ${[...labels].join(", ")}`;
+      const msg = `${t("detected")} ${[...labels].join(", ")}`;
+      detectStatus.textContent = blur < 18 ? `${msg} | ${t("blurWarn")}` : msg;
       detectStatus.className = "status ok";
 
       [...labels].forEach(label => {
@@ -340,6 +442,7 @@
     };
 
     el("startCam").onclick = openCamera;
+    el("refocusBtn").onclick = refocusNow;
     el("snapBtn").onclick = () => detectFromElement(video);
 
     el("fileInput").addEventListener("change", async e => {
